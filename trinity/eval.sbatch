@@ -2,15 +2,15 @@
 #SBATCH -J libero-eval
 #SBATCH -A gts-szonouz6
 #SBATCH -q embers                     # free tier: no charge, but jobs can be preempted
-#SBATCH --gres=gpu:1                    # any GPU type: serving needs ~8 GB, which every PACE GPU has
+#SBATCH --gres=gpu:1                   # one GPU; submit via trinity/submit.sh to skip V100 and RTX 6000 nodes
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=64G
 #SBATCH -t 6:00:00
 #SBATCH -o logs/eval-%j.out
 #SBATCH --requeue                     # if preempted, Slurm puts the job back in the queue
 # Usage (from the repo root):
-#   sbatch trinity/eval.sbatch                                   # official pi05_libero baseline, libero_spatial
-#   CONFIG=pi05_libero_lora CKPT=checkpoints/pi05_libero_lora/run1/29999 SUITE=libero_10 sbatch trinity/eval.sbatch
+#   bash trinity/submit.sh eval                                   # official pi05_libero baseline, libero_spatial
+#   CONFIG=pi05_libero_lora CKPT=checkpoints/pi05_libero_lora/run1/29999 SUITE=libero_10 bash trinity/submit.sh eval
 
 source ~/.openpi_env
 cd $PROJ/openpi

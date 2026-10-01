@@ -2,14 +2,16 @@
 #SBATCH -J lora-train
 #SBATCH -A gts-szonouz6
 #SBATCH -q embers                     # free tier: no charge, but jobs can be preempted
-#SBATCH --gres=gpu:H100:1
+#SBATCH --gres=gpu:1                   # one GPU; submit via trinity/submit.sh to skip V100 and RTX 6000 nodes
 #SBATCH --cpus-per-task=16
 #SBATCH --mem=128G
 #SBATCH -t 8:00:00
 #SBATCH -o logs/train-%j.out
 #SBATCH --requeue                     # if preempted, Slurm puts the job back in the queue
-# Usage (from the repo root):  CONFIG=pi05_libero_lora sbatch trinity/train.sbatch
+# Usage (from the repo root):  CONFIG=pi05_libero_lora bash trinity/submit.sh train
 # Resubmitting the same CONFIG/EXP continues from the last saved checkpoint.
+# submit.sh skips v100 and rtx_6000 (no native bf16; rtx_6000 also has only 24 GB).
+# To force one type instead:  sbatch --gres=gpu:h200:1 trinity/train.sbatch
 
 source ~/.openpi_env
 cd $PROJ/openpi
