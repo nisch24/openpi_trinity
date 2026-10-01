@@ -2,7 +2,7 @@
 #SBATCH -J libero-eval
 #SBATCH -A gts-szonouz6
 #SBATCH -q embers                     # free tier: no charge, but jobs can be preempted
-#SBATCH --gres=gpu:H100:1
+#SBATCH --gres=gpu:1                    # any GPU type: serving needs ~8 GB, which every PACE GPU has
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=64G
 #SBATCH -t 6:00:00
