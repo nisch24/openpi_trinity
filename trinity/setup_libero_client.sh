@@ -11,4 +11,7 @@ source examples/libero/.venv/bin/activate
 uv pip sync examples/libero/requirements.txt third_party/libero/requirements.txt \
   --extra-index-url https://download.pytorch.org/whl/cu113 --index-strategy=unsafe-best-match
 uv pip install -e packages/openpi-client -e third_party/libero
+# LIBERO asks a Y/N question on first import; answer "n" now so later batch jobs never hit it
+export PYTHONPATH=${PYTHONPATH:-}:$PWD/third_party/libero
+[ -f ~/.libero/config.yaml ] || echo n | python -c "import libero.libero" >/dev/null
 echo "LIBERO client environment ready."

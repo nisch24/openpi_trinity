@@ -24,8 +24,9 @@ echo "Evaluating $CONFIG @ $CKPT on $SUITE ($TRIALS trials/task), node $(hostnam
 # Start the policy server in the background on this GPU
 uv run scripts/serve_policy.py --port 8000 policy:checkpoint --policy.config=$CONFIG --policy.dir=$CKPT &
 SERVER=$!
-# Wait until it accepts connections (first load compiles, so this can take minutes)
-until (echo > /dev/tcp/localhost/8000) 2>/dev/null; do
+# Wait until the server reports it is listening (watching our own log avoids poking the port,
+# which made the server log a harmless but confusing "handshake failed" traceback)
+until grep -q "server listening" logs/eval-$SLURM_JOB_ID.out 2>/dev/null; do
   kill -0 $SERVER 2>/dev/null || { echo "Server exited before starting"; exit 1; }
   sleep 10
 done
@@ -34,6 +35,8 @@ done
 source examples/libero/.venv/bin/activate
 export PYTHONPATH=${PYTHONPATH:-}:$PWD/third_party/libero
 export MUJOCO_GL=${MUJOCO_GL:-egl}                          # try MUJOCO_GL=osmesa if EGL errors appear
+# LIBERO asks a Y/N question on its first import; answer "n" (keep default paths) so batch jobs don't crash
+[ -f ~/.libero/config.yaml ] || echo n | python -c "import libero.libero" >/dev/null
 python examples/libero/main.py --args.task-suite-name $SUITE \
   --args.num-trials-per-task $TRIALS --args.video-out-path logs/videos/$SLURM_JOB_ID
 kill $SERVER
