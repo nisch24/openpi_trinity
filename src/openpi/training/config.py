@@ -21,6 +21,7 @@ import openpi.policies.aloha_policy as aloha_policy
 import openpi.policies.droid_policy as droid_policy
 import openpi.policies.libero_policy as libero_policy
 import openpi.shared.download as _download
+import openpi.shared.nnx_utils as nnx_utils
 import openpi.shared.normalize as _normalize
 import openpi.training.droid_rlds_dataset as droid_rlds_dataset
 import openpi.training.misc.polaris_config as polaris_config
@@ -557,6 +558,17 @@ class TrainConfig:
 
 
 # Use `get_config` if you need to get a config by name in your code.
+# Trinity: pi0.5 with LoRA on the 2B language model (rank 16) and the 300M action expert (rank 32).
+# Action horizon and state handling match pi05_libero so LoRA results compare directly against it.
+_PI05_LORA = pi0_config.Pi0Config(
+    pi05=True,
+    action_horizon=10,
+    discrete_state_input=False,
+    paligemma_variant="gemma_2b_lora",
+    action_expert_variant="gemma_300m_lora",
+)
+
+
 _CONFIGS = [
     #
     # Inference Aloha configs.
@@ -760,6 +772,42 @@ _CONFIGS = [
         weight_loader=weight_loaders.CheckpointWeightLoader("gs://openpi-assets/checkpoints/pi05_base/params"),
         pytorch_weight_path="/path/to/your/pytorch_weight_path",
         num_train_steps=30_000,
+    ),
+    #
+    # Trinity: per-robot adapter experiments (compare against pi05_libero above).
+    #
+    TrainConfig(
+        # Variant A: openpi's default LoRA recipe. Only the language model is frozen, so the
+        # vision encoder and action/state projections still train in full per robot (~467M params).
+        name="pi05_libero_lora",
+        model=_PI05_LORA,
+        data=LeRobotLiberoDataConfig(
+            repo_id="physical-intelligence/libero",
+            base_config=DataConfig(prompt_from_task=True),
+            extra_delta_transform=False,  # same as pi05_libero
+        ),
+        weight_loader=weight_loaders.CheckpointWeightLoader("gs://openpi-assets/checkpoints/pi05_base/params"),
+        num_train_steps=30_000,
+        freeze_filter=_PI05_LORA.get_freeze_filter(),
+        ema_decay=None,  # openpi disables EMA for LoRA fine-tuning
+    ),
+    TrainConfig(
+        # Variant B (strict): also freeze the SigLIP vision encoder, so the only per-robot
+        # weights are the LoRA matrices and the small action/state projections (~52M params).
+        name="pi05_libero_lora_strict",
+        model=_PI05_LORA,
+        data=LeRobotLiberoDataConfig(
+            repo_id="physical-intelligence/libero",
+            base_config=DataConfig(prompt_from_task=True),
+            extra_delta_transform=False,
+        ),
+        weight_loader=weight_loaders.CheckpointWeightLoader("gs://openpi-assets/checkpoints/pi05_base/params"),
+        num_train_steps=30_000,
+        freeze_filter=nnx.Any(
+            _PI05_LORA.get_freeze_filter(),
+            nnx_utils.PathRegex(".*img.*"),  # SigLIP vision encoder parameters
+        ),
+        ema_decay=None,
     ),
     #
     # Fine-tuning Aloha configs.
