@@ -20,6 +20,7 @@ import openpi.models.tokenizer as _tokenizer
 import openpi.policies.aloha_policy as aloha_policy
 import openpi.policies.droid_policy as droid_policy
 import openpi.policies.libero_policy as libero_policy
+import openpi.policies.rby1_policy as rby1_policy
 import openpi.shared.download as _download
 import openpi.shared.nnx_utils as nnx_utils
 import openpi.shared.normalize as _normalize
@@ -357,6 +358,50 @@ class LeRobotLiberoDataConfig(DataConfigFactory):
 
 
 @dataclasses.dataclass(frozen=True)
+class LeRobotRBY1DataConfig(DataConfigFactory):
+    """Trinity: Rainbow RB-Y1 bimanual data, converted to LeRobot v2.1 by trinity/convert_rby1.py."""
+
+    # Train on relative joint moves for the 14 arm joints and absolute positions for the 2 grippers,
+    # the same split openpi uses for its bimanual ALOHA robot. Converted back to absolute at inference.
+    use_delta_actions: bool = True
+
+    @override
+    def create(self, assets_dirs: pathlib.Path, model_config: _model.BaseModelConfig) -> DataConfig:
+        # Dataset keys -> the keys an RB-Y1 client sends at inference (applied to training data only)
+        repack_transform = _transforms.Group(
+            inputs=[
+                _transforms.RepackTransform(
+                    {
+                        "observation/image": "image",
+                        "observation/left_wrist_image": "left_wrist_image",
+                        "observation/right_wrist_image": "right_wrist_image",
+                        "observation/state": "state",
+                        "actions": "actions",
+                        "prompt": "prompt",
+                    }
+                )
+            ]
+        )
+        data_transforms = _transforms.Group(
+            inputs=[rby1_policy.RBY1Inputs(model_type=model_config.model_type)],
+            outputs=[rby1_policy.RBY1Outputs()],
+        )
+        if self.use_delta_actions:
+            delta_action_mask = _transforms.make_bool_mask(14, -2)  # 14 arm joints relative, 2 grippers absolute
+            data_transforms = data_transforms.push(
+                inputs=[_transforms.DeltaActions(delta_action_mask)],
+                outputs=[_transforms.AbsoluteActions(delta_action_mask)],
+            )
+        model_transforms = ModelTransformFactory()(model_config)
+        return dataclasses.replace(
+            self.create_base_config(assets_dirs, model_config),
+            repack_transforms=repack_transform,
+            data_transforms=data_transforms,
+            model_transforms=model_transforms,
+        )
+
+
+@dataclasses.dataclass(frozen=True)
 class RLDSDroidDataConfig(DataConfigFactory):
     """
     Config for training on DROID, using RLDS data format (for efficient training on larger datasets).
@@ -567,6 +612,20 @@ _PI05_LORA = pi0_config.Pi0Config(
     paligemma_variant="gemma_2b_lora",
     action_expert_variant="gemma_300m_lora",
 )
+
+
+# Trinity: RB-Y1 data is recorded at 15 fps, so predict 15 steps (1 second), like openpi's 15 Hz DROID configs.
+_PI05_RBY1 = pi0_config.Pi0Config(pi05=True, action_horizon=15, discrete_state_input=False)
+_PI05_RBY1_LORA = pi0_config.Pi0Config(
+    pi05=True,
+    action_horizon=15,
+    discrete_state_input=False,
+    paligemma_variant="gemma_2b_lora",
+    action_expert_variant="gemma_300m_lora",
+)
+# Converted dataset name (trinity/convert_rby1.py writes trinity/<Rainbow dataset name>).
+# Training uses this; every 20th episode is kept out in <name>_heldout for trinity/eval_rby1.py.
+_RBY1_REPO = "trinity/simtos_0412_mirror_v2"
 
 
 _CONFIGS = [
@@ -805,6 +864,42 @@ _CONFIGS = [
         num_train_steps=30_000,
         freeze_filter=nnx.Any(
             _PI05_LORA.get_freeze_filter(),
+            nnx_utils.PathRegex(".*img.*"),  # SigLIP vision encoder parameters
+        ),
+        ema_decay=None,
+    ),
+    #
+    # Trinity: RB-Y1 adapter experiments. All three use the same batch size and steps, so they see
+    # exactly the same data and differ only in what is trained.
+    #
+    TrainConfig(
+        # Full fine-tune: the RB-Y1 baseline (there is no published RB-Y1 checkpoint to compare against).
+        # Needs >70 GB of GPU memory: submit with  sbatch --gres=gpu:h200:1 trinity/train.sbatch
+        name="pi05_rby1",
+        model=_PI05_RBY1,
+        data=LeRobotRBY1DataConfig(repo_id=_RBY1_REPO, base_config=DataConfig(prompt_from_task=True)),
+        weight_loader=weight_loaders.CheckpointWeightLoader("gs://openpi-assets/checkpoints/pi05_base/params"),
+        num_train_steps=30_000,
+    ),
+    TrainConfig(
+        # Variant A on RB-Y1: openpi's default LoRA recipe (LoRA + vision encoder trained, ~467M)
+        name="pi05_rby1_lora",
+        model=_PI05_RBY1_LORA,
+        data=LeRobotRBY1DataConfig(repo_id=_RBY1_REPO, base_config=DataConfig(prompt_from_task=True)),
+        weight_loader=weight_loaders.CheckpointWeightLoader("gs://openpi-assets/checkpoints/pi05_base/params"),
+        num_train_steps=30_000,
+        freeze_filter=_PI05_RBY1_LORA.get_freeze_filter(),
+        ema_decay=None,
+    ),
+    TrainConfig(
+        # Variant B on RB-Y1: vision encoder frozen too (LoRA + projections only, ~52M)
+        name="pi05_rby1_lora_strict",
+        model=_PI05_RBY1_LORA,
+        data=LeRobotRBY1DataConfig(repo_id=_RBY1_REPO, base_config=DataConfig(prompt_from_task=True)),
+        weight_loader=weight_loaders.CheckpointWeightLoader("gs://openpi-assets/checkpoints/pi05_base/params"),
+        num_train_steps=30_000,
+        freeze_filter=nnx.Any(
+            _PI05_RBY1_LORA.get_freeze_filter(),
             nnx_utils.PathRegex(".*img.*"),  # SigLIP vision encoder parameters
         ),
         ema_decay=None,
