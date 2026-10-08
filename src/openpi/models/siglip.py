@@ -15,6 +15,7 @@
 """A refactored and simplified ViT adoptation for Pi, taken from big_vision."""
 
 from collections.abc import Sequence
+import functools
 
 import flax.linen as nn
 import jax
@@ -50,12 +51,43 @@ def get_posemb(self, typ, seqshape, width, name, dtype=jnp.float32):
     raise ValueError(f"Unknown posemb type: {typ}")
 
 
+class LoRADotGeneral(nn.Module):
+    """Trinity: drop-in dot_general for flax Dense/DenseGeneral that adds a low-rank update (LoRA).
+
+    Passed as `dot_general_cls`, so the frozen kernel keeps its original name and shape (pretrained
+    weights load unchanged) and only the new `lora_a`/`lora_b` params are added next to it.
+    """
+
+    rank: int
+    alpha: float | None = None  # defaults to rank, i.e. scaling 1.0 (same as openpi's Gemma LoRA)
+
+    @nn.compact
+    def __call__(self, x, kernel, dimension_numbers, precision=None):
+        out = jax.lax.dot_general(x, kernel, dimension_numbers, precision=precision)
+        (lhs_contract, rhs_contract), batch_dims = dimension_numbers
+        n_in = len(rhs_contract)
+        # Dense/DenseGeneral put the contracted (input) axes first in the kernel, with no batch axes
+        assert tuple(rhs_contract) == tuple(range(n_in)) and batch_dims == ((), ()), dimension_numbers
+        # A: input axes -> rank; B: rank -> output axes. B starts at zero, so step 0 equals the pretrained model.
+        a = self.param("lora_a", nn.initializers.normal(stddev=0.01), (*kernel.shape[:n_in], self.rank), jnp.float32)
+        b = self.param("lora_b", nn.initializers.zeros, (self.rank, *kernel.shape[n_in:]), jnp.float32)
+        low = jax.lax.dot_general(x, a.astype(x.dtype), ((lhs_contract, rhs_contract), ((), ())))
+        lora = jnp.tensordot(low, b.astype(x.dtype), axes=1)
+        return out + lora * ((self.alpha or self.rank) / self.rank)
+
+
+def _lora_cls(lora_rank: int):
+    """dot_general_cls for flax layers: LoRA when lora_rank > 0, otherwise the plain matmul."""
+    return functools.partial(LoRADotGeneral, rank=lora_rank) if lora_rank else None
+
+
 class MlpBlock(nn.Module):
     """Transformer MLP / feed-forward block."""
 
     mlp_dim: int | None = None  # Defaults to 4x input dim
     dropout: float = 0.0
     dtype_mm: str = "float32"
+    lora_rank: int = 0  # Trinity: >0 adds LoRA to both Dense layers
 
     @nn.compact
     def __call__(self, x, deterministic=True):  # noqa: FBT002
@@ -66,10 +98,11 @@ class MlpBlock(nn.Module):
         }
 
         _, _, d = x.shape  # n,l,d
-        x = nn.Dense(self.mlp_dim or 4 * d, dtype=self.dtype_mm, **inits)(x)
+        lora = _lora_cls(self.lora_rank)
+        x = nn.Dense(self.mlp_dim or 4 * d, dtype=self.dtype_mm, dot_general_cls=lora, **inits)(x)
         x = nn.gelu(x)
         x = nn.Dropout(rate=self.dropout)(x, deterministic)
-        return nn.Dense(d, dtype=self.dtype_mm, **inits)(x)
+        return nn.Dense(d, dtype=self.dtype_mm, dot_general_cls=lora, **inits)(x)
 
 
 class Encoder1DBlock(nn.Module):
@@ -79,6 +112,7 @@ class Encoder1DBlock(nn.Module):
     num_heads: int = 12
     dropout: float = 0.0
     dtype_mm: str = "float32"
+    lora_rank: int = 0  # Trinity: >0 adds LoRA to the q/k/v/out projections and the MLP
 
     @nn.compact
     def __call__(self, x, deterministic=True):  # noqa: FBT002
@@ -90,6 +124,8 @@ class Encoder1DBlock(nn.Module):
             kernel_init=nn.initializers.xavier_uniform(),
             deterministic=deterministic,
             dtype=self.dtype_mm,
+            qkv_dot_general_cls=_lora_cls(self.lora_rank),
+            out_dot_general_cls=_lora_cls(self.lora_rank),
         )(y, y)
         y = sharding.activation_sharding_constraint(y)
         y = nn.Dropout(rate=self.dropout)(y, deterministic)
@@ -100,6 +136,7 @@ class Encoder1DBlock(nn.Module):
             mlp_dim=self.mlp_dim,
             dropout=self.dropout,
             dtype_mm=self.dtype_mm,
+            lora_rank=self.lora_rank,
         )(y, deterministic)
         y = sharding.activation_sharding_constraint(y)
         y = nn.Dropout(rate=self.dropout)(y, deterministic)
@@ -118,6 +155,7 @@ class Encoder(nn.Module):
     scan: bool = False
     remat_policy: str = "nothing_saveable"
     dtype_mm: str = "float32"
+    lora_rank: int = 0  # Trinity: passed to every encoder block
 
     @nn.compact
     def __call__(self, x, deterministic=True):  # noqa: FBT002
@@ -142,6 +180,7 @@ class Encoder(nn.Module):
                 mlp_dim=self.mlp_dim,
                 num_heads=self.num_heads,
                 dropout=self.dropout,
+                lora_rank=self.lora_rank,
             )(x, deterministic)
             for lyr in range(self.depth):
                 out[f"block{lyr:02d}"] = jax.tree.map(lambda o, lyr=lyr: o[lyr], scan_out)
@@ -154,6 +193,7 @@ class Encoder(nn.Module):
                     mlp_dim=self.mlp_dim,
                     num_heads=self.num_heads,
                     dropout=self.dropout,
+                    lora_rank=self.lora_rank,
                 )
                 x, out[f"block{lyr:02d}"] = block_cur(x, deterministic)
             out["pre_ln"] = x  # Alias for last block, but without the number in it.
@@ -203,6 +243,7 @@ class _Module(nn.Module):
     # or "dots_with_no_batch_dims_saveable" for more speed (memory costly)
     remat_policy: str = "nothing_saveable"
     dtype_mm: str = "float32"
+    lora_rank: int = 0  # Trinity: >0 adds LoRA to every encoder block (patch embedding and head stay plain)
 
     @nn.compact
     def __call__(self, image, *, train=False):
@@ -246,6 +287,7 @@ class _Module(nn.Module):
             scan=self.scan,
             remat_policy=self.remat_policy,
             dtype_mm=self.dtype_mm,
+            lora_rank=self.lora_rank,
             name="Transformer",
         )(x, deterministic=not train)
         encoded = out["encoded"] = x

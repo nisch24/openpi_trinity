@@ -25,10 +25,10 @@ echo "Converting $REPO on $(hostname): $ARGS"
 uv run python trinity/convert_rby1.py $ARGS
 
 # Each config keeps its own copy of the stats (assets/<config>/trinity/<name>/norm_stats.json).
-# The 3 configs share data and transforms, so compute once and copy.
+# The 4 configs share data and transforms, so compute once and copy.
 uv run scripts/compute_norm_stats.py --config-name pi05_rby1_lora
 SRC=assets/pi05_rby1_lora/trinity/${REPO#*/}
-for C in pi05_rby1 pi05_rby1_lora_strict; do
+for C in pi05_rby1 pi05_rby1_lora_strict pi05_rby1_lora_vision; do
   mkdir -p assets/$C/trinity && cp -r $SRC assets/$C/trinity/
 done
 echo "Done. Norm stats in assets/pi05_rby1*/trinity/${REPO#*/}/"

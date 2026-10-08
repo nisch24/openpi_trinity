@@ -623,6 +623,8 @@ _PI05_RBY1_LORA = pi0_config.Pi0Config(
     paligemma_variant="gemma_2b_lora",
     action_expert_variant="gemma_300m_lora",
 )
+# Variant C: same LoRA as above, plus rank-16 LoRA inside the SigLIP vision encoder.
+_PI05_RBY1_LORA_VISION = dataclasses.replace(_PI05_RBY1_LORA, vision_lora_rank=16)
 # Converted dataset name (trinity/convert_rby1.py writes trinity/<Rainbow dataset name>).
 # Training uses this; every 20th episode is kept out in <name>_heldout for trinity/eval_rby1.py.
 _RBY1_REPO = "trinity/simtos_0412_mirror_v2"
@@ -901,6 +903,22 @@ _CONFIGS = [
         freeze_filter=nnx.Any(
             _PI05_RBY1_LORA.get_freeze_filter(),
             nnx_utils.PathRegex(".*img.*"),  # SigLIP vision encoder parameters
+        ),
+        ema_decay=None,
+    ),
+    TrainConfig(
+        # Variant C on RB-Y1: the middle ground. The vision encoder adapts through its own LoRA
+        # instead of training in full, so every per-robot weight is low-rank (or a small projection)
+        # and the whole network stays shareable across robots when serving.
+        name="pi05_rby1_lora_vision",
+        model=_PI05_RBY1_LORA_VISION,
+        data=LeRobotRBY1DataConfig(repo_id=_RBY1_REPO, base_config=DataConfig(prompt_from_task=True)),
+        weight_loader=weight_loaders.CheckpointWeightLoader("gs://openpi-assets/checkpoints/pi05_base/params"),
+        num_train_steps=30_000,
+        freeze_filter=nnx.Any(
+            _PI05_RBY1_LORA_VISION.get_freeze_filter(),
+            # SigLIP frozen except its new LoRA weights
+            nnx.All(nnx_utils.PathRegex(".*img.*"), nnx.Not(nnx_utils.PathRegex(".*lora.*"))),
         ),
         ema_decay=None,
     ),

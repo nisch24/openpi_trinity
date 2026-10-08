@@ -31,6 +31,8 @@ class Pi0Config(_model.BaseModelConfig):
     pi05: bool = False
     # This config option is not used directly by the model, but it is read by the ModelTransformFactory.
     discrete_state_input: bool = None  # type: ignore
+    # Trinity: LoRA rank for the SigLIP vision encoder (0 = no LoRA there). JAX model only.
+    vision_lora_rank: int = 0
 
     pytorch_compile_mode: str | None = "max-autotune"
 
