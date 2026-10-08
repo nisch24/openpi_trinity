@@ -922,6 +922,23 @@ _CONFIGS = [
         ),
         ema_decay=None,
     ),
+    # Variant C rank sweep: same as pi05_rby1_lora_vision but with a higher SigLIP LoRA rank.
+    # Prior work suggests vision needs high rank (Ferchau et al. 2607.10172; LoRA-SP, ICRA'26: ~128).
+    *[
+        TrainConfig(
+            name=f"pi05_rby1_lora_vision_r{rank}",
+            model=dataclasses.replace(_PI05_RBY1_LORA, vision_lora_rank=rank),
+            data=LeRobotRBY1DataConfig(repo_id=_RBY1_REPO, base_config=DataConfig(prompt_from_task=True)),
+            weight_loader=weight_loaders.CheckpointWeightLoader("gs://openpi-assets/checkpoints/pi05_base/params"),
+            num_train_steps=30_000,
+            freeze_filter=nnx.Any(
+                _PI05_RBY1_LORA.get_freeze_filter(),
+                nnx.All(nnx_utils.PathRegex(".*img.*"), nnx.Not(nnx_utils.PathRegex(".*lora.*"))),
+            ),
+            ema_decay=None,
+        )
+        for rank in (64, 128)
+    ],
     #
     # Fine-tuning Aloha configs.
     #
