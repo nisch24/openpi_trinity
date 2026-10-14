@@ -12,7 +12,9 @@ Output features (openpi naming, like its LIBERO example):
 Images are stored resized-with-padding to 224x224, the size pi0.5 uses, to keep the output small.
 
 Two datasets are written: trinity/<name> for training, and trinity/<name>_heldout with every
-20th episode (about 5%), which training never sees. RB-Y1 has no simulator, so models are scored
+20th episode (about 5%), which training never sees. Rainbow's "_mirror" datasets also contain
+left/right-mirrored copies of earlier episodes; a mirrored copy always goes to the same side of the
+split as its original, so no held-out episode has its twin in training. RB-Y1 has no simulator, so models are scored
 by how closely their predicted actions match the recorded ones on held-out episodes (eval_rby1.py).
 
 Run from the openpi repo root on PACE (CPU job; needs HF_TOKEN for the download):
@@ -91,6 +93,33 @@ class EpisodeVideoReader:
         return out
 
 
+def mirror_roots(episodes: pd.DataFrame) -> dict[int, int]:
+    """Map each episode to the original it was mirrored from (itself if it is an original).
+
+    A mirrored copy swaps the two arms and grippers and flips some joint signs, so its per-episode
+    state means equal the original's in absolute value after swapping arms, with the same length.
+    In simtos_0412_mirror_v2 every one of the 472 copies matches exactly one earlier episode exactly.
+    """
+    col = "stats/observation.state/mean"
+    idx = [int(i) for i in episodes["episode_index"]]
+    if col not in episodes:
+        return {i: i for i in idx}
+    mean = {int(i): np.abs(np.asarray(v, dtype=float).ravel()) for i, v in zip(episodes["episode_index"], episodes[col])}
+    length = {int(i): int(n) for i, n in zip(episodes["episode_index"], episodes["length"])}
+    swap = np.r_[7:14, 0:7, 15, 14]  # right arm <-> left arm, right gripper <-> left gripper
+    roots, claimed = {}, set()
+    for e in sorted(idx):
+        roots[e] = e
+        for j in sorted(idx):
+            if j >= e:
+                break
+            if roots[j] == j and j not in claimed and length[j] == length[e] and np.abs(mean[e] - mean[j][swap]).max() < 1e-5:
+                roots[e] = j
+                claimed.add(j)
+                break
+    return roots
+
+
 def main(args: Args) -> None:
     logging.basicConfig(level=logging.INFO, format="%(message)s")
 
@@ -117,6 +146,8 @@ def main(args: Args) -> None:
     episodes = pd.concat(
         [pd.read_parquet(p) for p in sorted((src / "meta/episodes").glob("*/*.parquet"))], ignore_index=True
     ).sort_values("episode_index")
+    roots = mirror_roots(episodes)  # on the full index, so twins are found even when testing a few episodes
+    logging.info(f"Found {sum(r != e for e, r in roots.items())} mirrored copies of earlier episodes")
     if args.max_episodes:
         episodes = episodes.head(args.max_episodes)
 
@@ -174,8 +205,8 @@ def main(args: Args) -> None:
             for key, name in CAMERAS.items()
         }
         task = str(ep["tasks"][0])  # instruction text for this episode
-        # Fixed rule (not random) so the split is identical on every run
-        is_heldout = heldout is not None and int(ep["episode_index"]) % args.heldout_every == 0
+        # Fixed rule (not random) so the split is identical on every run; mirrored copies follow their original
+        is_heldout = heldout is not None and roots[int(ep["episode_index"])] % args.heldout_every == 0
         out = heldout if is_heldout else train
         counts["heldout" if is_heldout else "train"] += 1
         states = np.stack(rows["observation.state"].to_numpy()).astype(np.float32)
