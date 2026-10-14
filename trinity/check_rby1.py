@@ -45,6 +45,7 @@ def main(args: Args) -> None:
     ok = True
 
     # Source rows (already in the HF cache from the conversion, so this is fast)
+    print("Loading source and converted data (about 1-2 minutes)...", flush=True)
     src = pathlib.Path(snapshot_download(args.repo_id, repo_type="dataset", allow_patterns=["data/*", "meta/*"]))
     rows = pd.concat([pd.read_parquet(p, columns=["episode_index", "frame_index", "observation.state", "action"])
                       for p in sorted((src / "data").glob("*/*.parquet"))])
@@ -54,12 +55,15 @@ def main(args: Args) -> None:
         d = LeRobotDataset(name)
         print(f"{name}: {d.num_episodes} episodes, {d.num_frames} frames")
     ds = LeRobotDataset(args.converted)
-    ep_col = np.asarray(ds.hf_dataset["episode_index"])
+    # Number columns only, so reading them never decodes the images (much faster)
+    nums = ds.hf_dataset.select_columns(["episode_index", "state", "actions"]).with_format("numpy")
+    ep_col = np.asarray(nums["episode_index"])
+    all_state, all_actions = np.stack(nums["state"]), np.stack(nums["actions"])
+    print("Checking episodes...", flush=True)
 
     for k in range(min(args.episodes, ds.num_episodes)):
         idx = np.flatnonzero(ep_col == k)
-        state = np.stack([np.asarray(ds.hf_dataset[int(i)]["state"]) for i in idx])
-        actions = np.stack([np.asarray(ds.hf_dataset[int(i)]["actions"]) for i in idx])
+        state, actions = all_state[idx], all_actions[idx]
 
         # 1. Find the source episode with the same length and first state, then compare every value
         match = [e for e, g in by_ep.items() if len(g) == len(idx) and np.allclose(g["observation.state"].iloc[0], state[0])]
