@@ -614,6 +614,16 @@ _PI05_LORA = pi0_config.Pi0Config(
 )
 
 
+# Trinity: LIBERO data for the LoRA variants. Norm stats come from the published pi05_libero checkpoint,
+# so every variant normalizes exactly like the baseline (and no compute_norm_stats run is needed).
+# Without this, missing stats are only logged ("skipping") and training would run unnormalized.
+_LIBERO_LORA_DATA = LeRobotLiberoDataConfig(
+    repo_id="physical-intelligence/libero",
+    base_config=DataConfig(prompt_from_task=True),
+    assets=AssetsConfig(assets_dir="gs://openpi-assets/checkpoints/pi05_libero/assets", asset_id="physical-intelligence/libero"),
+    extra_delta_transform=False,  # same as pi05_libero
+)
+
 # Trinity: RB-Y1 data is recorded at 15 fps, so predict 15 steps (1 second), like openpi's 15 Hz DROID configs.
 _PI05_RBY1 = pi0_config.Pi0Config(pi05=True, action_horizon=15, discrete_state_input=False)
 _PI05_RBY1_LORA = pi0_config.Pi0Config(
@@ -842,11 +852,7 @@ _CONFIGS = [
         # vision encoder and action/state projections still train in full per robot (~467M params).
         name="pi05_libero_lora",
         model=_PI05_LORA,
-        data=LeRobotLiberoDataConfig(
-            repo_id="physical-intelligence/libero",
-            base_config=DataConfig(prompt_from_task=True),
-            extra_delta_transform=False,  # same as pi05_libero
-        ),
+        data=_LIBERO_LORA_DATA,
         weight_loader=weight_loaders.CheckpointWeightLoader("gs://openpi-assets/checkpoints/pi05_base/params"),
         num_train_steps=30_000,
         freeze_filter=_PI05_LORA.get_freeze_filter(),
@@ -857,11 +863,7 @@ _CONFIGS = [
         # weights are the LoRA matrices and the small action/state projections (~52M params).
         name="pi05_libero_lora_strict",
         model=_PI05_LORA,
-        data=LeRobotLiberoDataConfig(
-            repo_id="physical-intelligence/libero",
-            base_config=DataConfig(prompt_from_task=True),
-            extra_delta_transform=False,
-        ),
+        data=_LIBERO_LORA_DATA,
         weight_loader=weight_loaders.CheckpointWeightLoader("gs://openpi-assets/checkpoints/pi05_base/params"),
         num_train_steps=30_000,
         freeze_filter=nnx.Any(
@@ -870,6 +872,22 @@ _CONFIGS = [
         ),
         ema_decay=None,
     ),
+    # Variant C on LIBERO: LoRA inside SigLIP too (rest of SigLIP frozen), same ranks as the RB-Y1 sweep.
+    *[
+        TrainConfig(
+            name=f"pi05_libero_lora_vision{suffix}",
+            model=dataclasses.replace(_PI05_LORA, vision_lora_rank=rank),
+            data=_LIBERO_LORA_DATA,
+            weight_loader=weight_loaders.CheckpointWeightLoader("gs://openpi-assets/checkpoints/pi05_base/params"),
+            num_train_steps=30_000,
+            freeze_filter=nnx.Any(
+                _PI05_LORA.get_freeze_filter(),
+                nnx.All(nnx_utils.PathRegex(".*img.*"), nnx.Not(nnx_utils.PathRegex(".*lora.*"))),
+            ),
+            ema_decay=None,
+        )
+        for suffix, rank in (("", 16), ("_r128", 128))
+    ],
     #
     # Trinity: RB-Y1 adapter experiments. All three use the same batch size and steps, so they see
     # exactly the same data and differ only in what is trained.

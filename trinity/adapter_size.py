@@ -10,7 +10,7 @@ import jax
 
 from openpi.training import config as _config
 
-CONFIGS = ["pi05_libero", "pi05_libero_lora", "pi05_libero_lora_strict",
+CONFIGS = ["pi05_libero", "pi05_libero_lora", "pi05_libero_lora_strict", "pi05_libero_lora_vision", "pi05_libero_lora_vision_r128",
            "pi05_rby1", "pi05_rby1_lora", "pi05_rby1_lora_strict", "pi05_rby1_lora_vision",
            "pi05_rby1_lora_vision_r64", "pi05_rby1_lora_vision_r128"]
 
