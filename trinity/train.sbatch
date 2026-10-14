@@ -3,7 +3,7 @@
 #SBATCH -A gts-szonouz6
 #SBATCH -q embers                     # free tier: no charge, but jobs can be preempted
 #SBATCH --gres=gpu:1                   # one GPU; submit via trinity/submit.sh to skip V100 and RTX 6000 nodes
-#SBATCH --cpus-per-task=16
+#SBATCH --cpus-per-task=8             # PACE caps GPU nodes at 8 CPUs per GPU
 #SBATCH --mem=128G
 #SBATCH -t 8:00:00
 #SBATCH -o logs/train-%j.out
