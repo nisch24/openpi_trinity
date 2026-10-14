@@ -26,7 +26,10 @@ uv run python trinity/convert_rby1.py $ARGS
 
 # Each config keeps its own copy of the stats (assets/<config>/trinity/<name>/norm_stats.json).
 # All RB-Y1 configs share data and transforms, so compute once and copy.
-uv run scripts/compute_norm_stats.py --config-name pi05_rby1_lora
+# Stats come from a random sample of frames: the loader decodes every image (~7 s per 32 frames),
+# so all ~205k frames would take ~12 h, while 12,800 random frames take ~45 min and give the same stats.
+STATS_FRAMES=${STATS_FRAMES:-12800}
+uv run scripts/compute_norm_stats.py --config-name pi05_rby1_lora --max-frames $STATS_FRAMES
 SRC=assets/pi05_rby1_lora/trinity/${REPO#*/}
 for C in pi05_rby1 pi05_rby1_lora_strict pi05_rby1_lora_vision pi05_rby1_lora_vision_r64 pi05_rby1_lora_vision_r128; do
   mkdir -p assets/$C/trinity && cp -r $SRC assets/$C/trinity/

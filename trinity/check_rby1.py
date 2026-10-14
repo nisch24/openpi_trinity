@@ -9,6 +9,8 @@ and saves start/middle/end frames of every camera to logs/rby1_check/ to look at
 
 Run from the openpi repo root after convert_rby1.py (CPU is fine):
   uv run python trinity/check_rby1.py
+After a full conversion, also check a mirrored copy (source episode 569+) next to its original:
+  uv run python trinity/check_rby1.py --first 545 --episodes 2
 """
 import dataclasses
 import pathlib
@@ -28,6 +30,7 @@ class Args:
     repo_id: str = "rainbowrobotics/simtos_0412_mirror_v2"  # Rainbow source dataset
     converted: str = "trinity/simtos_0412_mirror_v2"  # converted train set
     episodes: int = 3  # how many converted episodes to check
+    first: int = 0  # first converted episode to check (mirrored copies start near 540 after a full conversion)
     out_dir: str = "logs/rby1_check"
 
 
@@ -61,7 +64,7 @@ def main(args: Args) -> None:
     all_state, all_actions = np.stack(nums["state"]), np.stack(nums["actions"])
     print("Checking episodes...", flush=True)
 
-    for k in range(min(args.episodes, ds.num_episodes)):
+    for k in range(args.first, min(args.first + args.episodes, ds.num_episodes)):
         idx = np.flatnonzero(ep_col == k)
         state, actions = all_state[idx], all_actions[idx]
 

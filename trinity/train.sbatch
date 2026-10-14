@@ -20,10 +20,11 @@ export XLA_PYTHON_CLIENT_PREALLOCATE=true XLA_PYTHON_CLIENT_MEM_FRACTION=0.9   #
 CONFIG=${CONFIG:-pi05_libero_lora}
 EXP=${EXP:-run1}
 STEPS=${STEPS:-}                     # optional override, e.g. STEPS=300 for a timing run
+WORKERS=${WORKERS:-6}                # data-loader processes; openpi's default of 2 can leave the GPU waiting on image decoding
 
 # Weights & Biases is off: its "must resume" step can fail after an embers preemption, which would
 # break automatic requeue. Training loss is still printed to the log every 100 steps.
-ARGS="--exp-name=$EXP --no-wandb-enabled"
+ARGS="--exp-name=$EXP --no-wandb-enabled --num-workers=$WORKERS"
 [ -n "$STEPS" ] && ARGS="$ARGS --num-train-steps=$STEPS"
 # Start fresh the first time; continue from the last checkpoint on resubmission
 if [ -d checkpoints/$CONFIG/$EXP ]; then ARGS="$ARGS --resume"; fi
