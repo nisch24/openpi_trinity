@@ -16,6 +16,7 @@
 source ~/.openpi_env
 cd $PROJ/openpi
 export XLA_PYTHON_CLIENT_PREALLOCATE=true XLA_PYTHON_CLIENT_MEM_FRACTION=0.9   # training: let JAX reserve 90% of GPU memory
+export PYTHONUNBUFFERED=1             # print the "Step N: loss=..." lines as they happen (otherwise buffered, lost on timeout)
 
 CONFIG=${CONFIG:-pi05_libero_lora}
 EXP=${EXP:-run1}
