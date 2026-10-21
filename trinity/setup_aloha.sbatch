@@ -16,10 +16,14 @@ cd $PROJ/openpi
 set -e
 
 # 1. Client venv for the simulator (separate from openpi's own env, like LIBERO's)
-rm -rf examples/aloha_sim/.venv
-uv venv --python 3.10 examples/aloha_sim/.venv
-VIRTUAL_ENV=$PWD/examples/aloha_sim/.venv uv pip install -r examples/aloha_sim/requirements.txt -e packages/openpi-client
-echo "ALOHA client venv ready."
+if [ -x examples/aloha_sim/.venv/bin/python ] && examples/aloha_sim/.venv/bin/python -c "import gym_aloha, openpi_client" 2>/dev/null; then
+  echo "ALOHA client venv already built; skipping."   # rerunning only redoes the norm stats
+else
+  rm -rf examples/aloha_sim/.venv
+  uv venv --python 3.10 examples/aloha_sim/.venv
+  VIRTUAL_ENV=$PWD/examples/aloha_sim/.venv uv pip install -r examples/aloha_sim/requirements.txt -e packages/openpi-client
+  echo "ALOHA client venv ready."
+fi
 
 # 2. Norm stats: the 4 configs share data and transforms, so compute once and copy
 uv run scripts/compute_norm_stats.py --config-name pi05_aloha_sim_lora

@@ -143,6 +143,10 @@ def create_torch_dataset(
         delta_timestamps={
             key: [t / dataset_meta.fps for t in range(action_horizon)] for key in data_config.action_sequence_keys
         },
+        # Trinity: decode video datasets (e.g. ALOHA sim) with PyAV, which bundles its own FFmpeg.
+        # LeRobot's default, torchcodec, needs system FFmpeg libraries that PACE nodes lack.
+        # Image-based datasets (LIBERO, converted RB-Y1) never decode video, so this doesn't affect them.
+        video_backend="pyav",
     )
 
     if data_config.prompt_from_task:
