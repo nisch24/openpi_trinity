@@ -624,6 +624,17 @@ _LIBERO_LORA_DATA = LeRobotLiberoDataConfig(
     extra_delta_transform=False,  # same as pi05_libero
 )
 
+# Trinity: ALOHA sim, a simulated bimanual robot scored by task success (like LIBERO).
+# Same data recipe as openpi's pi0_aloha_sim; 50 human demos of the transfer-cube task, 50 Hz.
+_ALOHA_SIM_DATA = LeRobotAlohaDataConfig(
+    repo_id="lerobot/aloha_sim_transfer_cube_human",
+    default_prompt="Transfer cube",
+    use_delta_joint_actions=False,
+)
+_PI05_ALOHA_LORA = pi0_config.Pi0Config(
+    pi05=True, paligemma_variant="gemma_2b_lora", action_expert_variant="gemma_300m_lora"
+)
+
 # Trinity: RB-Y1 data is recorded at 15 fps, so predict 15 steps (1 second), like openpi's 15 Hz DROID configs.
 _PI05_RBY1 = pi0_config.Pi0Config(pi05=True, action_horizon=15, discrete_state_input=False)
 _PI05_RBY1_LORA = pi0_config.Pi0Config(
@@ -956,6 +967,25 @@ _CONFIGS = [
             ema_decay=None,
         )
         for rank in (64, 128)
+    ],
+    # Trinity: the same A / B / C variants on ALOHA sim (second robot with a success metric).
+    *[
+        TrainConfig(
+            name=f"pi05_aloha_sim_lora{suffix}",
+            model=dataclasses.replace(_PI05_ALOHA_LORA, vision_lora_rank=rank),
+            data=_ALOHA_SIM_DATA,
+            weight_loader=weight_loaders.CheckpointWeightLoader("gs://openpi-assets/checkpoints/pi05_base/params"),
+            num_train_steps=20_000,
+            freeze_filter=nnx.Any(_PI05_ALOHA_LORA.get_freeze_filter(), vision_freeze),
+            ema_decay=None,
+        )
+        for suffix, rank, vision_freeze in (
+            ("", 0, nnx.Nothing()),  # A: SigLIP fully trained
+            ("_strict", 0, nnx_utils.PathRegex(".*img.*")),  # B: SigLIP frozen
+            # C: SigLIP frozen except its LoRA weights
+            ("_vision", 16, nnx.All(nnx_utils.PathRegex(".*img.*"), nnx.Not(nnx_utils.PathRegex(".*lora.*")))),
+            ("_vision_r128", 128, nnx.All(nnx_utils.PathRegex(".*img.*"), nnx.Not(nnx_utils.PathRegex(".*lora.*")))),
+        )
     ],
     #
     # Fine-tuning Aloha configs.
