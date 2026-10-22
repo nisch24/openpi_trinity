@@ -21,6 +21,7 @@ import openpi.policies.aloha_policy as aloha_policy
 import openpi.policies.droid_policy as droid_policy
 import openpi.policies.libero_policy as libero_policy
 import openpi.policies.rby1_policy as rby1_policy
+import openpi.policies.robotwin_policy as robotwin_policy
 import openpi.shared.download as _download
 import openpi.shared.nnx_utils as nnx_utils
 import openpi.shared.normalize as _normalize
@@ -402,6 +403,47 @@ class LeRobotRBY1DataConfig(DataConfigFactory):
 
 
 @dataclasses.dataclass(frozen=True)
+class LeRobotRoboTwinDataConfig(DataConfigFactory):
+    """Trinity: one RoboTwin 2.0 arm (all its tasks), converted by trinity/convert_robotwin.py."""
+
+    arm_dof: int = 6  # joints per arm: 6 for aloha-agilex and ur5, 7 for franka
+
+    @override
+    def create(self, assets_dirs: pathlib.Path, model_config: _model.BaseModelConfig) -> DataConfig:
+        # Dataset keys -> the keys the RoboTwin eval client sends (applied to training data only)
+        repack_transform = _transforms.Group(
+            inputs=[
+                _transforms.RepackTransform(
+                    {
+                        "observation/image": "image",
+                        "observation/left_wrist_image": "left_wrist_image",
+                        "observation/right_wrist_image": "right_wrist_image",
+                        "observation/state": "state",
+                        "actions": "actions",
+                        "prompt": "prompt",
+                    }
+                )
+            ]
+        )
+        # Arm joints learned as moves relative to the current state, grippers absolute (like openpi's ALOHA)
+        delta_action_mask = _transforms.make_bool_mask(self.arm_dof, -1, self.arm_dof, -1)
+        data_transforms = _transforms.Group(
+            inputs=[robotwin_policy.RoboTwinInputs(model_type=model_config.model_type)],
+            outputs=[robotwin_policy.RoboTwinOutputs(action_dim=2 * (self.arm_dof + 1))],
+        ).push(
+            inputs=[_transforms.DeltaActions(delta_action_mask)],
+            outputs=[_transforms.AbsoluteActions(delta_action_mask)],
+        )
+        model_transforms = ModelTransformFactory()(model_config)
+        return dataclasses.replace(
+            self.create_base_config(assets_dirs, model_config),
+            repack_transforms=repack_transform,
+            data_transforms=data_transforms,
+            model_transforms=model_transforms,
+        )
+
+
+@dataclasses.dataclass(frozen=True)
 class RLDSDroidDataConfig(DataConfigFactory):
     """
     Config for training on DROID, using RLDS data format (for efficient training on larger datasets).
@@ -649,6 +691,21 @@ _PI05_RBY1_LORA_VISION = dataclasses.replace(_PI05_RBY1_LORA, vision_lora_rank=1
 # Converted dataset name (trinity/convert_rby1.py writes trinity/<Rainbow dataset name>).
 # Training uses this; every 20th episode is kept out in <name>_heldout for trinity/eval_rby1.py.
 _RBY1_REPO = "trinity/simtos_0412_mirror_v2"
+
+# Trinity: RoboTwin 2.0, three different arms on the same 5 tasks, scored by task success.
+# Config name -> (RoboTwin arm, joints per arm). Data is 15 fps, so 15-step chunks (1 s), like RB-Y1.
+_ROBOTWIN_ARMS = {"aloha": ("aloha-agilex", 6), "franka": ("franka", 7), "ur5": ("ur5", 6)}
+_PI05_ROBOTWIN_LORA = pi0_config.Pi0Config(
+    pi05=True, action_horizon=15, paligemma_variant="gemma_2b_lora", action_expert_variant="gemma_300m_lora"
+)
+# The A / B / C variants: (config suffix, SigLIP LoRA rank, extra freeze filter for SigLIP)
+_VISION_VARIANTS = (
+    ("", 0, nnx.Nothing()),  # A: SigLIP fully trained
+    ("_strict", 0, nnx_utils.PathRegex(".*img.*")),  # B: SigLIP frozen
+    # C: SigLIP frozen except its LoRA weights
+    ("_vision", 16, nnx.All(nnx_utils.PathRegex(".*img.*"), nnx.Not(nnx_utils.PathRegex(".*lora.*")))),
+    ("_vision_r128", 128, nnx.All(nnx_utils.PathRegex(".*img.*"), nnx.Not(nnx_utils.PathRegex(".*lora.*")))),
+)
 
 
 _CONFIGS = [
@@ -986,6 +1043,23 @@ _CONFIGS = [
             ("_vision", 16, nnx.All(nnx_utils.PathRegex(".*img.*"), nnx.Not(nnx_utils.PathRegex(".*lora.*")))),
             ("_vision_r128", 128, nnx.All(nnx_utils.PathRegex(".*img.*"), nnx.Not(nnx_utils.PathRegex(".*lora.*")))),
         )
+    ],
+    # Trinity: the same variants on RoboTwin 2.0, one adapter per arm trained on all 5 tasks,
+    # e.g. pi05_robotwin_franka_lora_vision_r128. 12 configs: 3 arms x 4 variants.
+    *[
+        TrainConfig(
+            name=f"pi05_robotwin_{short}_lora{suffix}",
+            model=dataclasses.replace(_PI05_ROBOTWIN_LORA, vision_lora_rank=rank),
+            data=LeRobotRoboTwinDataConfig(
+                repo_id=f"trinity/robotwin_{arm}", arm_dof=dof, base_config=DataConfig(prompt_from_task=True)
+            ),
+            weight_loader=weight_loaders.CheckpointWeightLoader("gs://openpi-assets/checkpoints/pi05_base/params"),
+            num_train_steps=20_000,
+            freeze_filter=nnx.Any(_PI05_ROBOTWIN_LORA.get_freeze_filter(), vision_freeze),
+            ema_decay=None,
+        )
+        for short, (arm, dof) in _ROBOTWIN_ARMS.items()
+        for suffix, rank, vision_freeze in _VISION_VARIANTS
     ],
     #
     # Fine-tuning Aloha configs.
