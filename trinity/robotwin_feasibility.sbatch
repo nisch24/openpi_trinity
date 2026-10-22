@@ -24,6 +24,8 @@ cd $RT
 # 2. Python env with RoboTwin's requirements (pytorch3d and CuRobo skipped: only needed for data collection)
 [ -x .venv/bin/python ] || uv venv --python 3.10 .venv
 VIRTUAL_ENV=$RT/.venv uv pip install -r scripts/requirements.txt
+# sapien imports pkg_resources: uv venvs ship without setuptools, and setuptools 81+ removed pkg_resources
+VIRTUAL_ENV=$RT/.venv uv pip install "setuptools<81"
 PY=$RT/.venv/bin/python
 # RoboTwin's two upstream source patches (from scripts/_install.sh)
 SAPIEN_DIR=$($PY -c "import sapien, os; print(os.path.dirname(sapien.__file__))")
