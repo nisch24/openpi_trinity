@@ -47,9 +47,10 @@ arm = sys.argv[1]
 try:
     cfg_dir = pathlib.Path("env_cfg/task_config")
     cfg = yaml.safe_load((cfg_dir / "demo_clean.yml").read_text())
-    # simulator names differ from the dataset's for two arms (same map as eval_robotwin.SIM_ARM)
-    sim_arm = {"franka": "franka-panda", "ur5": "ur5-wsg", "arx-x5": "ARX-X5"}.get(arm, arm)
-    cfg.update(embodiment=[sim_arm], eval_video_log=False)
+    # same map as eval_robotwin.SIM_ARM: single-arm robots are paired as [left, right, spacing]
+    sim_arm = {"aloha-agilex": ["aloha-agilex"], "arx-x5": ["ARX-X5"],
+               "franka": ["franka-panda", "franka-panda", 0.8], "ur5": ["ur5-wsg", "ur5-wsg", 0.8]}[arm]
+    cfg.update(embodiment=sim_arm, eval_video_log=False)
     (cfg_dir / f"trinity_{arm}_demo_clean.yml").write_text(yaml.safe_dump(cfg))
     args, _ = rt.load_task_args({"task_name": "click_bell", "task_config": f"trinity_{arm}_demo_clean", "policy_name": "trinity"})
     args["eval_mode"] = True

@@ -26,8 +26,15 @@ import eval_policy_xpolicylab as rt  # noqa: E402  (RoboTwin's eval helpers; als
 from envs.utils.create_actor import UnStableError  # noqa: E402
 
 TASKS = ("beat_block_hammer", "click_bell", "move_can_pot", "place_empty_cup", "press_stapler")
-# Dataset arm name (as in <arm>_clean_50.zip and --arm) -> simulator embodiment name, where they differ
-SIM_ARM = {"franka": "franka-panda", "ur5": "ur5-wsg", "arx-x5": "ARX-X5"}
+# Dataset arm name (as in <arm>_clean_50.zip and --arm) -> RoboTwin "embodiment" list. Two-arm robots are
+# [name]; single-arm robots are paired as [left, right, spacing in m]. 0.8 m matches the demonstrations
+# (left and right end-effectors start 0.80 m apart in the franka and ur5 clean_50 data).
+SIM_ARM = {
+    "aloha-agilex": ["aloha-agilex"],
+    "arx-x5": ["ARX-X5"],
+    "franka": ["franka-panda", "franka-panda", 0.8],
+    "ur5": ["ur5-wsg", "ur5-wsg", 0.8],
+}
 CAMERAS = {"head_camera": "observation/image", "left_camera": "observation/left_wrist_image",
            "right_camera": "observation/right_wrist_image"}
 
@@ -48,7 +55,7 @@ def write_task_config(arm: str, base: str) -> str:
     """RoboTwin picks the arm from a task-config yml: copy the base one with our arm, no video logging."""
     cfg_dir = ROBOTWIN / "env_cfg" / "task_config"
     cfg = yaml.safe_load((cfg_dir / f"{base}.yml").read_text())
-    cfg["embodiment"] = [SIM_ARM.get(arm, arm)]
+    cfg["embodiment"] = SIM_ARM.get(arm, [arm])
     cfg["eval_video_log"] = False  # RoboTwin writes videos through an ffmpeg binary PACE doesn't have
     name = f"trinity_{arm}_{base}"
     (cfg_dir / f"{name}.yml").write_text(yaml.safe_dump(cfg))
