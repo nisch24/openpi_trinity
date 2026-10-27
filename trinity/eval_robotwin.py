@@ -11,6 +11,8 @@ format, so trinity/collect_results.py picks the result up.
 Runs in RoboTwin's venv with RoboTwin as the working directory. Usually launched by trinity/eval_robotwin.sbatch.
 """
 import dataclasses
+import functools
+import inspect
 import logging
 import pathlib
 import sys
@@ -18,7 +20,14 @@ import sys
 import numpy as np
 from openpi_client import websocket_client_policy
 import tyro
+import websockets.sync.client
 import yaml
+
+# RoboTwin's venv has websockets 15+, whose sync client pings every 20 s and drops the connection if no
+# pong comes back in 20 s. openpi's server can't answer while it runs inference, and the first call
+# (JIT compile) takes longer than that, so turn client keepalive off (older versions have no such option).
+if "ping_interval" in inspect.signature(websockets.sync.client.connect).parameters:
+    websockets.sync.client.connect = functools.partial(websockets.sync.client.connect, ping_interval=None)
 
 ROBOTWIN = pathlib.Path.cwd()  # the job cds into RoboTwin
 sys.path.insert(0, str(ROBOTWIN / "scripts"))
