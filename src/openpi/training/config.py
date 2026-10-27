@@ -1042,6 +1042,10 @@ _CONFIGS = [
             # C: SigLIP frozen except its LoRA weights
             ("_vision", 16, nnx.All(nnx_utils.PathRegex(".*img.*"), nnx.Not(nnx_utils.PathRegex(".*lora.*")))),
             ("_vision_r128", 128, nnx.All(nnx_utils.PathRegex(".*img.*"), nnx.Not(nnx_utils.PathRegex(".*lora.*")))),
+            # C r256: tests whether r128's gap to A on ALOHA (41% vs 82% at 20k steps) is a rank ceiling
+            ("_vision_r256", 256, nnx.All(nnx_utils.PathRegex(".*img.*"), nnx.Not(nnx_utils.PathRegex(".*lora.*")))),
+            # C r512: upper end of the rank sweep (SigLIP width is 1152, so this is near full rank)
+            ("_vision_r512", 512, nnx.All(nnx_utils.PathRegex(".*img.*"), nnx.Not(nnx_utils.PathRegex(".*lora.*")))),
         )
     ],
     # Trinity: the same variants on RoboTwin 2.0, one adapter per arm trained on all 5 tasks,

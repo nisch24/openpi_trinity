@@ -42,6 +42,9 @@ class WebsocketPolicyServer:
             compression=None,
             max_size=None,
             process_request=_health_check,
+            # Trinity: no keepalive pings. A client running a simulator (e.g. RoboTwin's planner) can hold
+            # the GIL for over 20 s between requests, miss a pong, and get disconnected mid-evaluation.
+            ping_interval=None,
         ) as server:
             await server.serve_forever()
 
