@@ -25,7 +25,9 @@ TRIALS=${TRIALS:-20}                  # episodes per task
 echo "Evaluating $CONFIG @ $CKPT on robotwin_$ARM ($TRIALS trials/task), node $(hostname)"
 
 # Fail fast on a broken GPU (atl1-1-01-004-31-0 has shown ECC errors and "no supported devices")
-nvidia-smi --query-gpu=name,ecc.errors.uncorrected.volatile.total --format=csv || { echo "GPU unusable on $(hostname)"; exit 1; }
+# (nvidia-smi still lists a faulty GPU, so ask JAX itself, the way the policy server will)
+nvidia-smi --query-gpu=name,ecc.errors.uncorrected.volatile.total --format=csv
+uv run python -c "import jax; print('GPU OK:', jax.devices('gpu'))" || { echo "GPU UNUSABLE on $(hostname)"; exit 1; }
 
 # Free port per job (shared GPU nodes), then start the policy server in the background
 PORT=${PORT:-$(python3 -c 'import socket; s = socket.socket(); s.bind(("", 0)); print(s.getsockname()[1])')}
