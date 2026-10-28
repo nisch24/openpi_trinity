@@ -24,7 +24,12 @@ export VIRTUAL_ENV=$RT/.venv
 # 1. CuRobo v0.7.8, compiled against the venv's torch (as in RoboTwin's scripts/_install.sh)
 module load cuda || module avail cuda      # nvcc is needed to compile CuRobo's CUDA kernels
 nvcc --version
-export TORCH_CUDA_ARCH_LIST="8.0;8.9;9.0"  # A100, L40S, H100
+export TORCH_CUDA_ARCH_LIST="7.5;8.0;8.9;9.0"  # RTX 6000 (Turing), A100, L40S, H100. Blackwell (12.0) needs a newer torch than RoboTwin's
+# REBUILD_CUROBO=1 recompiles an existing build, e.g. after adding a GPU architecture above
+if [ "$REBUILD_CUROBO" = 1 ]; then
+  rm -rf $RT/envs/curobo/build
+  uv pip uninstall nvidia_curobo || true
+fi
 if ! $PY -c "import curobo" 2>/dev/null; then
   [ -d $RT/envs/curobo ] || git clone --branch v0.7.8 --depth 1 https://github.com/NVlabs/curobo.git $RT/envs/curobo
   uv pip install --no-build-isolation -e $RT/envs/curobo
