@@ -32,7 +32,6 @@ if "ping_interval" in inspect.signature(websockets.sync.client.connect).paramete
 ROBOTWIN = pathlib.Path.cwd()  # the job cds into RoboTwin
 sys.path.insert(0, str(ROBOTWIN / "scripts"))
 import eval_policy_xpolicylab as rt  # noqa: E402  (RoboTwin's eval helpers; also puts envs/ on the path)
-from envs.utils.create_actor import UnStableError  # noqa: E402
 
 TASKS = ("beat_block_hammer", "click_bell", "move_can_pot", "place_empty_cup", "press_stapler")
 # Dataset arm name (as in <arm>_clean_50.zip and --arm) -> RoboTwin "embodiment" list. Two-arm robots are
@@ -92,7 +91,8 @@ def run_task(task: str, task_config: str, client, args: Args) -> int:
             env.setup_demo(now_ep_num=done, seed=seed, is_test=True, **cfg)
             info = env.play_once()
             env.close_env()
-        except UnStableError:
+        except Exception as e:  # unstable scene, or the expert itself errors (e.g. no grasp pose): skip the seed, as RoboTwin does
+            logging.info(f"{task} seed {seed} skipped in expert check: {type(e).__name__}: {e}")
             rt.safe_close_env(env)
             seed += 1
             continue
@@ -102,7 +102,8 @@ def run_task(task: str, task_config: str, client, args: Args) -> int:
 
         try:
             env.setup_demo(now_ep_num=done, seed=seed, is_test=True, **cfg)
-        except UnStableError:
+        except Exception as e:  # scene setup failed this time: skip the seed, as RoboTwin does
+            logging.info(f"{task} seed {seed} skipped in setup: {type(e).__name__}: {e}")
             rt.safe_close_env(env)
             seed += 1
             continue
