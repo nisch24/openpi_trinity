@@ -1048,6 +1048,26 @@ _CONFIGS = [
             ("_vision_r512", 512, nnx.All(nnx_utils.PathRegex(".*img.*"), nnx.Not(nnx_utils.PathRegex(".*lora.*")))),
         )
     ],
+    # Trinity: C r128 "plus", tests the two remaining explanations for the ALOHA gap to A (r512 58% vs 82%):
+    #   1. 4x learning rate (LoRA usually wants a higher one than full fine-tuning; all variants above use 2.5e-5)
+    #   2. SigLIP's small non-LoRA layers trainable too: patch + position embedding, LayerNorms, output head (~3.5M params)
+    TrainConfig(
+        name="pi05_aloha_sim_lora_vision_r128_plus",
+        model=dataclasses.replace(_PI05_ALOHA_LORA, vision_lora_rank=128),
+        data=_ALOHA_SIM_DATA,
+        weight_loader=weight_loaders.CheckpointWeightLoader("gs://openpi-assets/checkpoints/pi05_base/params"),
+        num_train_steps=20_000,
+        lr_schedule=_optimizer.CosineDecaySchedule(peak_lr=1e-4, decay_lr=1e-5),  # default schedule, scaled 4x
+        freeze_filter=nnx.Any(
+            _PI05_ALOHA_LORA.get_freeze_filter(),
+            # freeze SigLIP except its LoRA weights and the small layers listed above
+            nnx.All(
+                nnx_utils.PathRegex(".*img.*"),
+                nnx.Not(nnx_utils.PathRegex(".*(lora|LayerNorm|encoder_norm|img/embedding|img/pos_embedding|img/head).*")),
+            ),
+        ),
+        ema_decay=None,
+    ),
     # Trinity: the same variants on RoboTwin 2.0, one adapter per arm trained on all 5 tasks,
     # e.g. pi05_robotwin_franka_lora_vision_r128. 12 configs: 3 arms x 4 variants.
     *[
