@@ -111,4 +111,7 @@ What the results show so far:
 
 - **Fewer evaluation episodes:** LIBERO uses 5 trials per task (openpi uses 50), and RoboTwin uses 20 episodes per task (RoboTwin uses 100).
 - **ALOHA sim episode cap:** 400 steps instead of gym-aloha's registered 300, because the human demos are about 400 steps long.
-- **Franka and UR5 arm spacing:** RoboTwin pairs single arms 0.8 m apart. We inferred that value from the demos' starting end-effector positions; it is not yet verified against RoboTwin's collection settings.
+
+## Checks
+
+- **Franka and UR5 arm spacing:** RoboTwin pairs single arms 0.8 m apart. We inferred that value from the demos' starting end-effector positions. `check_arm_spacing.py` confirmed it: on all three arms, a reset simulator matches the first frame of a click_bell demo in joints and end-effector positions (differences below 0.0001).
