@@ -66,6 +66,7 @@ How RoboTwin is set up:
 | `convert_robotwin.py`, `.sbatch` | Downloads RoboTwin demos for one arm, converts them to LeRobot format, and computes norm stats. |
 | `eval_robotwin.py`, `.sbatch` | RoboTwin success rate following RoboTwin's protocol: expert-solvable seeds, its instruction generator, the Easy setting, 20 episodes per task. |
 | `convert_rby1.py`, `.sbatch`, `check_rby1.py`, `eval_rby1.py`, `.sbatch` | RB-Y1 conversion with a held-out split, and action-error scoring (no simulator). |
+| `check_arm_spacing.py`, `.sbatch` | Compares a reset simulator with the first demo frame on each arm, to verify the Franka and UR5 spacing. |
 | `collect_results.py` | Gathers every `logs/eval-*.out` into one table and `logs/results.csv`. |
 | `adapter_size.py` | Trainable parameters and per-robot size for each variant. |
 
