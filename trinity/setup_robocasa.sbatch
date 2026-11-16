@@ -41,24 +41,24 @@ fi
 # 1. Simulator: repo at its pin, venv, assets (each part is skipped if already done)
 [ -d $REPO/.git ] || git clone $URL $REPO
 git -C $REPO checkout -q $PIN
-if [ -x $VENV/bin/python ] && $VENV/bin/python -c "import robocasa, openpi_client" 2>/dev/null; then
+if [ -x $VENV/bin/python ] && $VENV/bin/python -c "import robocasa, openpi_client, mujoco; assert mujoco.__version__ == '3.2.6'" 2>/dev/null; then
   echo "$ROBOT venv already built; skipping."
 else
   rm -rf $VENV && mkdir -p examples/$ROBOT
   uv venv --python 3.12 $VENV
   export VIRTUAL_ENV=$VENV
   uv pip install setuptools wheel
-  uv pip install "git+https://github.com/ARISE-Initiative/robosuite.git@$ROBOSUITE"
+  PINS="numpy==1.26.4 mujoco==3.2.6 gymnasium==0.29.1"   # both simulators check for exactly these when imported
+  uv pip install "git+https://github.com/ARISE-Initiative/robosuite.git@$ROBOSUITE" $PINS
   if [ "$ROBOT" = robocasa ]; then
     # This fork pins numpy and numba versions that do not exist for Python 3.12, so install it
     # without its dependency list and give it compatible versions (as GR00T's setup does)
     uv pip install -e $REPO --no-deps --config-settings editable_mode=compat
-    uv pip install numba scipy pygame Pillow opencv-python pyyaml pynput tqdm termcolor h5py lxml hidapi tianshou
+    uv pip install $PINS numba scipy pygame Pillow opencv-python pyyaml pynput tqdm termcolor h5py lxml hidapi tianshou
   else
-    uv pip install -e $REPO --config-settings editable_mode=compat
+    uv pip install -e $REPO $PINS --config-settings editable_mode=compat
   fi
-  # Both simulators check for exactly these mujoco and numpy versions when imported
-  uv pip install numpy==1.26.4 mujoco==3.2.6 gymnasium==0.29.1 imageio imageio-ffmpeg tyro -e packages/openpi-client
+  uv pip install $PINS imageio imageio-ffmpeg tyro -e packages/openpi-client
   unset VIRTUAL_ENV
   echo "$ROBOT venv ready."
 fi

@@ -18,12 +18,13 @@ set -e
 VENV=examples/xarm_sim/.venv
 
 # 1. Client venv for the simulator (separate from openpi's own env, like ALOHA's)
-if [ -x $VENV/bin/python ] && $VENV/bin/python -c "import gym_xarm, openpi_client" 2>/dev/null; then
+if [ -x $VENV/bin/python ] && $VENV/bin/python -c "import gym_xarm, openpi_client, gymnasium; assert gymnasium.__version__ == '0.29.1'" 2>/dev/null; then
   echo "xArm client venv already built; skipping."
 else
   rm -rf $VENV && mkdir -p examples/xarm_sim
   uv venv --python 3.10 $VENV
-  VIRTUAL_ENV=$PWD/$VENV uv pip install "gym-xarm==0.1.1" "numpy<2" imageio imageio-ffmpeg tyro -e packages/openpi-client
+  # gymnasium 1.x changed its MuJoCo renderer's arguments, which gym-xarm 0.1.1 still uses the old way
+  VIRTUAL_ENV=$PWD/$VENV uv pip install "gym-xarm==0.1.1" "gymnasium==0.29.1" "gymnasium-robotics==1.2.4" "numpy<2" imageio imageio-ffmpeg tyro -e packages/openpi-client
   echo "xArm client venv ready."
 fi
 

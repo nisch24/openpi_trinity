@@ -22,6 +22,7 @@ import json
 import logging
 import pathlib
 import shutil
+import time
 from typing import Literal
 
 import av
@@ -43,15 +44,36 @@ class Args:
     overwrite: bool = True
 
 
-def fetch(src_root: pathlib.Path, subset: str, episodes: int) -> pathlib.Path:
-    """Download one task's metadata and its first `episodes` demos; return the task folder."""
-    from huggingface_hub import snapshot_download  # uses HF_TOKEN from the environment
+def download(path: str, src_root: pathlib.Path) -> None:
+    """Fetch one file of the source dataset, waiting and retrying when Hugging Face rate-limits us."""
+    from huggingface_hub import hf_hub_download  # uses HF_TOKEN from the environment
 
-    patterns = [f"{subset}/meta/*"]
+    if (src_root / path).exists():  # kept from an earlier run
+        return
+    for attempt in range(8):
+        try:
+            hf_hub_download(sim_robots.GROOT_SIM_REPO, path, repo_type="dataset", local_dir=src_root)
+            return
+        except Exception as error:  # noqa: BLE001
+            if "429" not in str(error) or attempt == 7:
+                raise
+            wait = 60 * (attempt + 1)
+            logging.warning(f"Rate-limited on {path}; retrying in {wait} s")
+            time.sleep(wait)
+
+
+def fetch(src_root: pathlib.Path, subset: str, episodes: int, cameras) -> pathlib.Path:
+    """Download one task's labels and its first `episodes` demos; return the task folder.
+
+    Files are requested by exact path. Asking for them by pattern makes Hugging Face list all of this
+    repo's 600,000+ files first, which uses up the hourly request limit before any download starts.
+    """
+    paths = [f"{subset}/meta/tasks.jsonl"]
     for i in range(episodes):
-        patterns.append(f"{subset}/data/chunk-000/episode_{i:06d}.parquet")
-        patterns.append(f"{subset}/videos/chunk-000/*/episode_{i:06d}.mp4")
-    snapshot_download(sim_robots.GROOT_SIM_REPO, repo_type="dataset", allow_patterns=patterns, local_dir=src_root)
+        paths.append(f"{subset}/data/chunk-000/episode_{i:06d}.parquet")
+        paths += [f"{subset}/videos/chunk-000/observation.images.{name}/episode_{i:06d}.mp4" for name in cameras]
+    for path in tqdm.tqdm(paths, desc=f"download {subset}"):
+        download(path, src_root)
     return src_root / subset
 
 
@@ -104,7 +126,7 @@ def main(args: Args) -> None:
 
     counts, reference = {}, {}
     for task in spec["tasks"]:
-        folder = fetch(src_root, spec["subset"].format(task=task), args.episodes)
+        folder = fetch(src_root, spec["subset"].format(task=task), args.episodes, spec["cameras"])
         labels = {}  # index -> text, for instructions and validity labels alike
         for line in (folder / "meta/tasks.jsonl").read_text().splitlines():
             labels[json.loads(line)["task_index"]] = json.loads(line)["task"]
