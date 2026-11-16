@@ -48,7 +48,9 @@ def to_observation(obs: dict, spec: dict) -> dict:
     for feature, key in spec["cameras"].values():
         name = "observation/image" if feature == "image" else f"observation/{feature}"
         out[name] = np.ascontiguousarray(obs[key])
-    out["prompt"] = str(obs["annotation.human.action.task_description"]).removeprefix(sim_robots.PROMPT_PREFIX)
+    # GR-1 envs put the instruction under "coarse_action" (prefixed "unlocked_waist: "), Panda under "task_description"
+    text = obs.get("annotation.human.action.task_description", obs.get("annotation.human.coarse_action"))
+    out["prompt"] = str(text).removeprefix(sim_robots.PROMPT_PREFIX).strip()
     return out
 
 

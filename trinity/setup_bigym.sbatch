@@ -25,7 +25,7 @@ export MUJOCO_GL=egl
 # 1. Simulator: BiGym at a pinned commit, installed in place because it finds its scene files next to its code
 [ -d $REPO/.git ] || git clone https://github.com/chernyadev/bigym $REPO
 git -C $REPO checkout -q d98124454dfa3bc697f75536daec5989a47bfa8d
-if [ -x $VENV/bin/python ] && $VENV/bin/python -c "import bigym, demonstrations, openpi_client" 2>/dev/null; then
+if [ -x $VENV/bin/python ] && $VENV/bin/python -c "import bigym, demonstrations, openpi_client, quaternion" 2>/dev/null; then
   echo "BiGym venv already built; skipping."
 else
   rm -rf $VENV && mkdir -p examples/bigym
@@ -51,11 +51,12 @@ for i, line in enumerate(lines):
 open(path, "w").write("\n".join(lines) + "\n")
 PY
   uv pip install -e $GYM
-  # BiGym itself without its dependency list (it names the fork by URL), then that list minus the fork
+  # BiGym itself without its dependency list (it names the fork by URL), then that list minus the fork,
+  # plus numpy-quaternion, which some BiGym tasks import as `quaternion` but setup.py does not list
   uv pip install -e $REPO --no-deps
   uv pip install --no-deps "mojo @ git+https://github.com/stepjam/mojo.git@0.1.1"   # in case it also names the fork
   uv pip install "numpy==1.26.*" "safetensors==0.6.2" "mujoco==3.1.5" "dm_control==1.0.19" pyquaternion \
-    mujoco_utils wget pyyaml dearpygui "pyopenxr<1.1.5001" \
+    "numpy-quaternion<2024" mujoco_utils wget pyyaml dearpygui "pyopenxr<1.1.5001" \
     imageio imageio-ffmpeg tyro -e packages/openpi-client
   unset VIRTUAL_ENV
   echo "BiGym venv ready."
