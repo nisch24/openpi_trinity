@@ -22,6 +22,7 @@ import openpi.policies.droid_policy as droid_policy
 import openpi.policies.libero_policy as libero_policy
 import openpi.policies.rby1_policy as rby1_policy
 import openpi.policies.robotwin_policy as robotwin_policy
+import openpi.policies.xarm_policy as xarm_policy
 import openpi.shared.download as _download
 import openpi.shared.nnx_utils as nnx_utils
 import openpi.shared.normalize as _normalize
@@ -444,6 +445,80 @@ class LeRobotRoboTwinDataConfig(DataConfigFactory):
 
 
 @dataclasses.dataclass(frozen=True)
+class LeRobotXarmDataConfig(DataConfigFactory):
+    """Trinity: simulated xArm lifting a cube (lerobot/xarm_lift_medium, read as LeRobot v2.1)."""
+
+    @override
+    def create(self, assets_dirs: pathlib.Path, model_config: _model.BaseModelConfig) -> DataConfig:
+        # Dataset keys -> the keys the xArm eval client sends (applied to training data only)
+        repack_transform = _transforms.Group(
+            inputs=[
+                _transforms.RepackTransform(
+                    {
+                        "observation/image": "observation.image",
+                        "observation/state": "observation.state",
+                        "actions": "action",
+                        "prompt": "prompt",
+                    }
+                )
+            ]
+        )
+        # Actions are already relative hand moves plus a gripper command, so no delta transform
+        data_transforms = _transforms.Group(
+            inputs=[xarm_policy.XarmInputs(model_type=model_config.model_type)],
+            outputs=[xarm_policy.XarmOutputs()],
+        )
+        model_transforms = ModelTransformFactory()(model_config)
+        return dataclasses.replace(
+            self.create_base_config(assets_dirs, model_config),
+            repack_transforms=repack_transform,
+            data_transforms=data_transforms,
+            model_transforms=model_transforms,
+            action_sequence_keys=("action",),  # the dataset calls it "action", not openpi's default "actions"
+        )
+
+
+@dataclasses.dataclass(frozen=True)
+class LeRobotSimRobotDataConfig(DataConfigFactory):
+    """Trinity: the newer simulated robots (RoboCasa Panda, GR-1 tabletop, BiGym H1); see trinity/sim_robots.py.
+
+    Their converted datasets share one layout (image[, left_wrist_image, right_wrist_image], state, actions),
+    so they reuse the RoboTwin transforms (3 cameras) or the xArm ones (1 camera).
+    """
+
+    action_dim: int = 0  # the robot's real action count; the model's padding up to 32 is cut back to this
+    # make_bool_mask arguments marking the action dims learned as moves relative to the state (None = none)
+    delta_mask: tuple[int, ...] | None = None
+    single_camera: bool = False  # True: one view in the base slot, both wrist slots empty and masked
+
+    @override
+    def create(self, assets_dirs: pathlib.Path, model_config: _model.BaseModelConfig) -> DataConfig:
+        # Dataset keys -> the keys the eval clients send (applied to training data only)
+        keys = {"observation/image": "image", "observation/state": "state", "actions": "actions", "prompt": "prompt"}
+        if not self.single_camera:
+            keys["observation/left_wrist_image"] = "left_wrist_image"
+            keys["observation/right_wrist_image"] = "right_wrist_image"
+        repack_transform = _transforms.Group(inputs=[_transforms.RepackTransform(keys)])
+        inputs = xarm_policy.XarmInputs if self.single_camera else robotwin_policy.RoboTwinInputs
+        data_transforms = _transforms.Group(
+            inputs=[inputs(model_type=model_config.model_type)],
+            outputs=[robotwin_policy.RoboTwinOutputs(action_dim=self.action_dim)],
+        )
+        if self.delta_mask is not None:
+            mask = _transforms.make_bool_mask(*self.delta_mask)
+            data_transforms = data_transforms.push(
+                inputs=[_transforms.DeltaActions(mask)], outputs=[_transforms.AbsoluteActions(mask)]
+            )
+        model_transforms = ModelTransformFactory()(model_config)
+        return dataclasses.replace(
+            self.create_base_config(assets_dirs, model_config),
+            repack_transforms=repack_transform,
+            data_transforms=data_transforms,
+            model_transforms=model_transforms,
+        )
+
+
+@dataclasses.dataclass(frozen=True)
 class RLDSDroidDataConfig(DataConfigFactory):
     """
     Config for training on DROID, using RLDS data format (for efficient training on larger datasets).
@@ -698,6 +773,37 @@ _ROBOTWIN_ARMS = {"aloha": ("aloha-agilex", 6), "franka": ("franka", 7), "ur5": 
 _PI05_ROBOTWIN_LORA = pi0_config.Pi0Config(
     pi05=True, action_horizon=15, paligemma_variant="gemma_2b_lora", action_expert_variant="gemma_300m_lora"
 )
+# Trinity: xArm (gym-xarm Lift), the low end of the action range: 4 numbers. Episodes are 25 steps at
+# 15 fps, so 10-step chunks like LIBERO.
+_PI05_XARM_LORA = pi0_config.Pi0Config(
+    pi05=True, action_horizon=10, paligemma_variant="gemma_2b_lora", action_expert_variant="gemma_300m_lora"
+)
+# Trinity: three more simulated robots, to span pi0.5's 32-number action limit (trinity/sim_robots.py).
+# RoboCasa and GR-1 data is 20 fps and scored with GR00T's protocol (16-step chunks, 8 executed);
+# BiGym is replayed at 50 Hz, so 50-step chunks (1 s) like ALOHA.
+_PI05_CHUNK16_LORA = pi0_config.Pi0Config(
+    pi05=True, action_horizon=16, paligemma_variant="gemma_2b_lora", action_expert_variant="gemma_300m_lora"
+)
+_PI05_CHUNK50_LORA = pi0_config.Pi0Config(
+    pi05=True, action_horizon=50, paligemma_variant="gemma_2b_lora", action_expert_variant="gemma_300m_lora"
+)
+# Config name -> (model, data). Delta masks: positive counts are learned relative to the state.
+_SIM_ROBOTS = {
+    # 12 actions, already relative hand and base moves plus two 0/1 switches
+    "robocasa": (_PI05_CHUNK16_LORA, LeRobotSimRobotDataConfig(repo_id="trinity/robocasa_panda", action_dim=12)),
+    # 29 actions: arm joints relative; finger commands and waist absolute (fingers are not in the state's units)
+    "gr1": (
+        _PI05_CHUNK16_LORA,
+        LeRobotSimRobotDataConfig(
+            repo_id="trinity/gr1_tabletop", action_dim=29, delta_mask=(7, -6, 7, -6, -3), single_camera=True
+        ),
+    ),
+    # 16 actions: base steps are already relative, the 10 arm joints become relative, grippers absolute
+    "bigym": (
+        _PI05_CHUNK50_LORA,
+        LeRobotSimRobotDataConfig(repo_id="trinity/bigym_h1", action_dim=16, delta_mask=(-4, 10, -2)),
+    ),
+}
 # The A / B / C variants: (config suffix, SigLIP LoRA rank, extra freeze filter for SigLIP)
 _VISION_VARIANTS = (
     ("", 0, nnx.Nothing()),  # A: SigLIP fully trained
@@ -1084,6 +1190,37 @@ _CONFIGS = [
         )
         for short, (arm, dof) in _ROBOTWIN_ARMS.items()
         for suffix, rank, vision_freeze in _VISION_VARIANTS
+    ],
+    # Trinity: xArm, A and C r128 only (B and r16 are dropped for new robots), full 30k-step runs.
+    # pi05_xarm_lora and pi05_xarm_lora_vision_r128; norm stats from trinity/setup_xarm.sbatch.
+    *[
+        TrainConfig(
+            name=f"pi05_xarm_lora{suffix}",
+            model=dataclasses.replace(_PI05_XARM_LORA, vision_lora_rank=rank),
+            data=LeRobotXarmDataConfig(repo_id="lerobot/xarm_lift_medium", base_config=DataConfig(prompt_from_task=True)),
+            weight_loader=weight_loaders.CheckpointWeightLoader("gs://openpi-assets/checkpoints/pi05_base/params"),
+            num_train_steps=30_000,
+            freeze_filter=nnx.Any(_PI05_XARM_LORA.get_freeze_filter(), vision_freeze),
+            ema_decay=None,
+        )
+        for suffix, rank, vision_freeze in _VISION_VARIANTS
+        if suffix in ("", "_vision_r128")
+    ],
+    # Trinity: RoboCasa Panda, GR-1 tabletop and BiGym H1, A and C r128, full 30k-step runs, e.g.
+    # pi05_gr1_lora_vision_r128. Data and norm stats from trinity/setup_robocasa.sbatch / setup_bigym.sbatch.
+    *[
+        TrainConfig(
+            name=f"pi05_{robot}_lora{suffix}",
+            model=dataclasses.replace(model, vision_lora_rank=rank),
+            data=dataclasses.replace(data, base_config=DataConfig(prompt_from_task=True)),
+            weight_loader=weight_loaders.CheckpointWeightLoader("gs://openpi-assets/checkpoints/pi05_base/params"),
+            num_train_steps=30_000,
+            freeze_filter=nnx.Any(model.get_freeze_filter(), vision_freeze),
+            ema_decay=None,
+        )
+        for robot, (model, data) in _SIM_ROBOTS.items()
+        for suffix, rank, vision_freeze in _VISION_VARIANTS
+        if suffix in ("", "_vision_r128")
     ],
     #
     # Fine-tuning Aloha configs.

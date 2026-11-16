@@ -14,7 +14,10 @@ CONFIGS = ["pi05_libero", "pi05_libero_lora", "pi05_libero_lora_strict", "pi05_l
            "pi05_rby1", "pi05_rby1_lora", "pi05_rby1_lora_strict", "pi05_rby1_lora_vision",
            "pi05_rby1_lora_vision_r64", "pi05_rby1_lora_vision_r128",
            "pi05_aloha_sim_lora", "pi05_aloha_sim_lora_strict", "pi05_aloha_sim_lora_vision", "pi05_aloha_sim_lora_vision_r128", "pi05_aloha_sim_lora_vision_r256", "pi05_aloha_sim_lora_vision_r512",
-           "pi05_aloha_sim_lora_vision_r128_plus"]
+           "pi05_aloha_sim_lora_vision_r128_plus",
+           "pi05_xarm_lora", "pi05_xarm_lora_vision_r128",
+           "pi05_robocasa_lora", "pi05_robocasa_lora_vision_r128", "pi05_bigym_lora", "pi05_bigym_lora_vision_r128",
+           "pi05_gr1_lora", "pi05_gr1_lora_vision_r128"]
 
 for name in CONFIGS:
     cfg = _config.get_config(name)
