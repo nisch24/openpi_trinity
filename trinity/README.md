@@ -77,7 +77,7 @@ How the three newest robots are set up (`trinity/sim_robots.py` holds their task
 | `convert_robotwin.py`, `.sbatch` | Downloads RoboTwin demos for one arm, converts them to LeRobot format, and computes norm stats. |
 | `eval_robotwin.py`, `.sbatch` | RoboTwin success rate following RoboTwin's protocol: expert-solvable seeds, its instruction generator, the Easy setting, 20 episodes per task. |
 | `setup_xarm.sbatch`, `check_xarm.py` | xArm client environment and norm stats; checks that a lift can count as success and how good the demos are. |
-| `eval_xarm_sim.py`, `eval_xarm.sbatch` | xArm success rate from gym-xarm's `is_success` (cube raised 0.15 m), 50-step episodes. |
+| `eval_xarm_sim.py`, `eval_xarm.sbatch` | xArm success rate: cube 0.15 m above its resting height, 50-step episodes. gym-xarm's own `is_success` mixes two height references and never fires (confirmed on PACE), so the scorer applies the intended 0.15 m rule itself. |
 | `sim_robots.py` | One table of tasks, cameras and state/action layouts for RoboCasa, GR-1 and BiGym, shared by their converters and eval clients. |
 | `setup_robocasa.sbatch`, `convert_groot_sim.py` | For `ROBOT=robocasa` or `gr1`: installs the simulator, downloads and converts the demos, checks the simulator against them, and computes norm stats. |
 | `setup_bigym.sbatch`, `convert_bigym.py` | Installs BiGym, replays its demos with cameras, writes the dataset, and computes norm stats. |

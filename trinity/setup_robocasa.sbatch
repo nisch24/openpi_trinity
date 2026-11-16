@@ -49,7 +49,10 @@ else
   export VIRTUAL_ENV=$VENV
   uv pip install setuptools wheel
   PINS="numpy==1.26.4 mujoco==3.2.6 gymnasium==0.29.1"   # both simulators check for exactly these when imported
-  uv pip install "git+https://github.com/ARISE-Initiative/robosuite.git@$ROBOSUITE" $PINS
+  # robosuite's newer pins ask for mujoco>=3.3 while RoboCasa checks for 3.2.6 (GR00T overrides it the same
+  # way), so install robosuite without its dependency list, then that list with MuJoCo pinned
+  uv pip install --no-deps "git+https://github.com/ARISE-Initiative/robosuite.git@$ROBOSUITE"
+  uv pip install $PINS numba scipy "qpsolvers[quadprog]" Pillow opencv-python pynput termcolor tqdm
   if [ "$ROBOT" = robocasa ]; then
     # This fork pins numpy and numba versions that do not exist for Python 3.12, so install it
     # without its dependency list and give it compatible versions (as GR00T's setup does)

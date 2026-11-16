@@ -1,7 +1,9 @@
 """Success-rate evaluation on the simulated xArm lifting a cube (gym-xarm Lift), like eval_aloha_sim.py.
 
 Connects to a running policy server (scripts/serve_policy.py), runs N episodes, and counts an episode as a
-success when gym-xarm reports the task completed (info["is_success"]: cube raised 0.15 m). Prints
+success when the cube rises 0.15 m above where it rested at the start. gym-xarm's own is_success compares
+a height measured from the table centre with a target measured from the floor, so it never fires
+(trinity/check_xarm.py shows this); the 0.15 m threshold is the one its Lift task intends. Prints
 "Total episodes" and "Total success rate" in examples/libero/main.py's format for trinity/collect_results.py.
 
 Runs in the xArm client venv (trinity/setup_xarm.sbatch). Usually launched by trinity/eval_xarm.sbatch.
@@ -17,6 +19,7 @@ import numpy as np
 from openpi_client import websocket_client_policy
 import tyro
 
+LIFT = 0.15  # metres the cube must rise for success (gym-xarm Lift's intended threshold)
 PROMPT = "Pick up the cube and lift it."  # the dataset's task text, which training used as the prompt
 
 
@@ -53,13 +56,14 @@ def main(args: Args) -> None:
     for ep in range(args.num_episodes):
         gym_obs, _ = env.reset(seed=args.seed + ep)
         frames, plan, success, done = [], [], False, False
+        start_z = env.unwrapped.obj[2]  # the cube's resting height; obj is in table-centre coordinates
         while not done:
             if not plan:  # ask the policy for a new chunk and keep its first replan_steps actions
                 plan = list(client.infer(to_observation(gym_obs))["actions"][: args.replan_steps])
             # gym-xarm rejects actions outside [-1, 1], so clip the model's output into range
             action = np.clip(np.asarray(plan.pop(0), dtype=np.float32), -1.0, 1.0)
             gym_obs, _, terminated, truncated, info = env.step(action)
-            success = success or bool(info.get("is_success", False))  # the task ends itself on success
+            success = success or env.unwrapped.obj[2] - start_z >= LIFT
             done = terminated or truncated
             if ep < args.save_videos:
                 frames.append(env.render())
